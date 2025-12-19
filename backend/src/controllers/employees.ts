@@ -3,12 +3,19 @@ import { pool } from '../config/database';
 import { Employee } from '../types';
 
 /**
- * IMPORTANTE: Estas queries SQL são EXEMPLOS e devem ser ajustadas
- * de acordo com o esquema real da sua base de dados.
- *
- * Quando copiar os ficheiros SQL para a pasta database/, atualize
- * os nomes das tabelas e colunas conforme necessário.
+ * Controllers para gestão de funcionários
+ * ATUALIZADO para corresponder ao schema real da base de dados (bd054_schema)
  */
+
+// Helper: Mapear estado de férias PT → EN
+function mapVacationStatus(estadoPT: string): 'Approved' | 'Pending' | 'Rejected' {
+  const map: Record<string, 'Approved' | 'Pending' | 'Rejected'> = {
+    'Aprovado': 'Approved',
+    'Por aprovar': 'Pending',
+    'Rejeitado': 'Rejected'
+  };
+  return map[estadoPT] || 'Pending';
+}
 
 // GET /api/employees - Listar todos os colaboradores
 export async function getAllEmployees(req: Request, res: Response) {
@@ -41,12 +48,12 @@ export async function getAllEmployees(req: Request, res: Response) {
   }
 }
 
-// GET /api/employees/:id - Buscar colaborador por ID
+// GET /api/employees/:id - Buscar colaborador por ID com todos os detalhes
 export async function getEmployeeById(req: Request, res: Response) {
   const { id } = req.params;
 
   try {
-    // Buscar dados básicos do colaborador
+    // 1. Buscar dados básicos do colaborador
     const employeeResult = await pool.query(`
       SELECT
         f.id_fun as id,
@@ -85,7 +92,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       LIMIT 1
     `, [id]);
 
-    // Buscar benefícios
+    // 3. Buscar benefícios atuais
     const benefitsResult = await pool.query(`
       SELECT
         b.tipo as type,
@@ -96,7 +103,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       AND (r.data_fim IS NULL OR r.data_fim >= CURRENT_DATE)
     `, [id]);
 
-    // Buscar histórico salarial
+    // 4. Buscar histórico salarial
     const salaryHistoryResult = await pool.query(`
       SELECT
         s.data_inicio as date,
@@ -117,7 +124,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       AND EXTRACT(YEAR FROM f.data_inicio) = EXTRACT(YEAR FROM CURRENT_DATE)
     `, [id]);
 
-    // Buscar histórico de férias
+    // 6. Buscar histórico de férias
     const vacationHistoryResult = await pool.query(`
       SELECT
         f.data_inicio as "startDate",
@@ -129,7 +136,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       ORDER BY f.data_inicio DESC
     `, [id]);
 
-    // Buscar formações
+    // 7. Buscar formações
     const trainingsResult = await pool.query(`
       SELECT
         form.id_for as id,
@@ -143,7 +150,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       ORDER BY tf.data_inicio DESC
     `, [id]);
 
-    // Buscar avaliações
+    // 8. Buscar avaliações
     const evaluationsResult = await pool.query(`
       SELECT
         a.data as date,
@@ -159,7 +166,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       ORDER BY a.data DESC
     `, [id]);
 
-    // Buscar histórico profissional
+    // 9. Buscar histórico profissional
     const jobHistoryResult = await pool.query(`
       SELECT
         h.nome_empresa as company,
@@ -172,7 +179,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       ORDER BY h.data_inicio DESC
     `, [id]);
 
-    // Buscar dependentes
+    // 10. Buscar dependentes
     const dependentsResult = await pool.query(`
       SELECT
         d.nome as name,
@@ -182,7 +189,7 @@ export async function getEmployeeById(req: Request, res: Response) {
       WHERE d.id_fun = $1
     `, [id]);
 
-    // Buscar faltas
+    // 11. Buscar faltas
     const absencesResult = await pool.query(`
       SELECT
         f.data as date,
@@ -193,13 +200,14 @@ export async function getEmployeeById(req: Request, res: Response) {
       ORDER BY f.data DESC
     `, [id]);
 
-    // Montar objeto completo
+    // Montar objeto completo Employee
     const fullEmployee: Employee = {
       ...employee,
+      avatarUrl: undefined, // Não existe na BD
       financials: {
-        baseSalaryGross: financialsResult.rows[0]?.baseSalaryGross || 0,
-        netSalary: financialsResult.rows[0]?.netSalary || 0,
-        deductions: financialsResult.rows[0]?.deductions || 0,
+        baseSalaryGross: salaryResult.rows[0]?.baseSalaryGross || 0,
+        netSalary: salaryResult.rows[0]?.netSalary || 0,
+        deductions: salaryResult.rows[0]?.deductions || 0,
         benefits: benefitsResult.rows,
         history: salaryHistoryResult.rows
       },
@@ -280,7 +288,7 @@ export async function createEmployee(req: Request, res: Response) {
 
     res.status(201).json({
       message: 'Colaborador criado com sucesso',
-      id: result.rows[0].id
+      id: nextId
     });
   } catch (error) {
     console.error('Erro ao criar colaborador:', error);
@@ -340,6 +348,7 @@ export async function updateEmployee(req: Request, res: Response) {
       codigoPostal,
       idDepart,
       employeeData.role,
+      idDepart,
       id
     ]);
 
